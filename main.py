@@ -23,7 +23,7 @@ def makedirs(path):
         print(path, "already exist!")
 
 
-def main(x_train, y_train, x_test, y_test, idx_train, idx_cal, args):
+def main(x_train, y_train, x_test, y_test, idx_train, idx_cal, args, weights):
     dir = f"ckpt/{args.data}"
     if os.path.exists(os.path.join(dir, "model.pt")) and not args.no_resume:
         model = helper.mse_model(in_shape=in_shape, out_shape=out_shape, hidden_size=args.hidden_size,
@@ -37,16 +37,16 @@ def main(x_train, y_train, x_test, y_test, idx_train, idx_cal, args):
                                                     in_shape=in_shape, out_shape=out_shape,
                                                     hidden_size=args.hidden_size, learn_func=nn_learn_func, epochs=args.epochs,
                                                     batch_size=args.batch_size, dropout=args.dropout, lr=args.lr, wd=args.wd,
-                                                    test_ratio=cv_test_ratio, random_state=cv_random_state, )
+                                                    test_ratio=cv_test_ratio, random_state=cv_random_state,weights=weights)
 
     if float(args.feat_norm) <= 0 or args.feat_norm == "inf":
         args.feat_norm = "inf"
         print("Use inf as feature norm")
     else:
         args.feat_norm = float(args.feat_norm)
-
+  
     nc = FeatRegressorNc(mean_estimator, inv_lr=args.feat_lr, inv_step=args.feat_step,
-                         feat_norm=args.feat_norm, certification_method=args.cert_method)
+                         feat_norm=args.feat_norm, certification_method=args.cert_method,weights=weights)
     icp = IcpRegressor(nc)
 
     if os.path.exists(os.path.join(dir, "model.pt")) and not args.no_resume:
@@ -120,13 +120,14 @@ if __name__ == '__main__':
         dataset_base_path = "./datasets/"
         dataset_name = args.data
         X, y = datasets.GetDataset(dataset_name, dataset_base_path)
+        #X = X.reshape(-1, 1)
         x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=test_ratio, random_state=seed)
 
         x_train = np.asarray(x_train)
         y_train = np.asarray(y_train)
         x_test = np.asarray(x_test)
         y_test = np.asarray(y_test)
-
+        
         n_train = x_train.shape[0]
         in_shape = x_train.shape[1]
         out_shape = y_train.shape[1] if len(y_train.shape) > 1 else 1
@@ -136,13 +137,32 @@ if __name__ == '__main__':
               (x_train.shape[0], x_train.shape[1], x_test.shape[0], x_test.shape[1]))
 
         # divide the data into proper training set and calibration set
-        idx = np.random.permutation(n_train)
+        '''idx = np.random.permutation(n_train)
         n_half = int(np.floor(n_train / 2))
-        idx_train, idx_cal = idx[:n_half], idx[n_half:2 * n_half]
+        idx_train, idx_cal = idx[:n_half], idx[n_half:2 * n_half]'''
+        n_half = int(np.floor(n_train / 2))
+        idx_train, idx_cal = list(range(n_train))[:n_half], list(range(n_train))[n_half:2 * n_half]
+
+        # define the weights
+        rho = 1
+        n = len(x_train[idx_cal,:])
+        weights = rho**(np.arange(n,0,-1))
+        #weights = weights / (np.sum(weights))
+
+        # define the weights by similarity between the features
+        '''from sklearn.metrics.pairwise import cosine_similarity
+        similarity_matrix = cosine_similarity(X)
+        max = np.max(similarity_matrix)
+        min = np.min(similarity_matrix)
+        similarity_matrix = (similarity_matrix - min) / (max - min)
+        row_sums = similarity_matrix.sum(axis=1)
+        normalized_matrix = similarity_matrix / row_sums[:, np.newaxis]
+        weights = normalized_matrix'''
 
         # zero mean and unit variance scaling
         scalerX = StandardScaler()
         scalerX = scalerX.fit(x_train[idx_train])
+
         x_train = scalerX.transform(x_train)
         x_test = scalerX.transform(x_test)
 
@@ -152,7 +172,7 @@ if __name__ == '__main__':
         y_test = np.squeeze(y_test) / mean_y_train
 
         coverage_fcp, length_fcp, coverage_cp, length_cp = \
-            main(x_train, y_train, x_test, y_test, idx_train, idx_cal, args)
+            main(x_train, y_train, x_test, y_test, idx_train, idx_cal, args, weights)
         fcp_coverage_list.append(coverage_fcp)
         fcp_length_list.append(length_fcp)
         cp_coverage_list.append(coverage_cp)
