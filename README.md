@@ -1,3 +1,3 @@
-Github Reprository for "Conformalized Time Series with Semantic Features"
+Github Reprository for "Conformalized Time Series with Semantic Features".
 
 
